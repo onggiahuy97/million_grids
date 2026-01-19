@@ -208,6 +208,17 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
+  // Wheel listener with passive: false to allow preventDefault
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [handleWheel]);
+
   // Calculate stats
   const visibleCellCount = (visibleRange.endX - visibleRange.startX) * (visibleRange.endY - visibleRange.startY);
 
@@ -216,7 +227,6 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
       <div
         ref={containerRef}
         className="w-full h-[70vh] min-h-[400px] bg-gray-900 border-2 border-gray-700 rounded-lg cursor-crosshair overflow-hidden"
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
       >
         <canvas
