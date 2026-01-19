@@ -1,0 +1,142 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+const WS_URL = import.meta.env.PROD 
+  ? `ws://${window.location.host}/ws` 
+  : 'ws://localhost:8080/ws';
+
+/**
+ * Custom hook to manage WebSocket connection for the grid
+ * Uses sparse format - only tracks active cells
+ * @returns {Object} { activeCells, gridSize, isConnected, toggleCell }
+ */
+export function useGridWebSocket() {
+  // Active cells stored as a Set of "x,y" strings for O(1) lookup
+  const [activeCells, setActiveCells] = useState(new Set());
+  
+  // Grid size from server
+  const [gridSize, setGridSize] = useState(1000);
+  
+  // Connection status
+  const [isConnected, setIsConnected] = useState(false);
+  
+  // WebSocket reference
+  const wsRef = useRef(null);
+  
+  // Reconnection state
+  const reconnectTimeoutRef = useRef(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 10;
+  const baseReconnectDelay = 1000;
+
+  // Connect to WebSocket
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    console.log('Connecting to WebSocket...', WS_URL);
+    const ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
+      reconnectAttempts.current = 0;
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'init') {
+          // Initial state: { type: 'init', size: 1000, active: [{x, y}, ...] }
+          console.log('Received initial state:', data.active?.length || 0, 'active cells');
+          setGridSize(data.size || 1000);
+          
+          // Convert active array to Set
+          const activeSet = new Set();
+          if (data.active) {
+            data.active.forEach(cell => {
+              activeSet.add(`${cell.x},${cell.y}`);
+            });
+          }
+          setActiveCells(activeSet);
+        } else if (data.t === 'u') {
+          // Cell update: { t: 'u', x, y, a: 0|1 }
+          setActiveCells(prev => {
+            const newSet = new Set(prev);
+            const key = `${data.x},${data.y}`;
+            if (data.a === 1) {
+              newSet.add(key);
+            } else {
+              newSet.delete(key);
+            }
+            return newSet;
+          });
+        }
+      } catch (err) {
+        console.error('Error parsing WebSocket message:', err);
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log('WebSocket closed:', event.code, event.reason);
+      setIsConnected(false);
+      wsRef.current = null;
+
+      // Attempt to reconnect with exponential backoff
+      if (reconnectAttempts.current < maxReconnectAttempts) {
+        const delay = baseReconnectDelay * Math.pow(2, reconnectAttempts.current);
+        console.log(`Reconnecting in ${delay}ms...`);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectAttempts.current++;
+          connect();
+        }, delay);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    wsRef.current = ws;
+  }, []);
+
+  // Send a cell toggle to the server
+  const toggleCell = useCallback((x, y) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const message = JSON.stringify({ x, y });
+      console.log('Sending toggle message:', message);
+      wsRef.current.send(message);
+    } else {
+      console.warn('WebSocket not connected, cannot toggle cell. ReadyState:', wsRef.current?.readyState);
+    }
+  }, []);
+
+  // Check if a cell is active
+  const isCellActive = useCallback((x, y) => {
+    return activeCells.has(`${x},${y}`);
+  }, [activeCells]);
+
+  // Initialize connection on mount
+  useEffect(() => {
+    connect();
+
+    return () => {
+      // Cleanup on unmount
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [connect]);
+
+  return {
+    activeCells,
+    gridSize,
+    isConnected,
+    toggleCell,
+    isCellActive,
+  };
+}
