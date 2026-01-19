@@ -3,7 +3,7 @@ import { useGridWebSocket } from './hooks/useGridWebSocket';
 import { VirtualGrid } from './components/VirtualGrid';
 
 function App() {
-  const { activeCells, gridSize, isConnected, toggleCell, isCellActive } = useGridWebSocket();
+  const { activeCells, gridSize, isConnected, connectedClients, toggleCell, isCellActive } = useGridWebSocket();
 
   // Handle cell click from grid
   const handleCellClick = useCallback((x, y) => {
@@ -19,6 +19,11 @@ function App() {
           <p className="text-gray-300 text-sm drop-shadow-md">
             {gridSize.toLocaleString()}×{gridSize.toLocaleString()} • {isConnected ? 'Connected' : 'Disconnected'}
           </p>
+          {isConnected && connectedClients > 0 && (
+            <p className="text-gray-300 text-sm drop-shadow-md">
+              {connectedClients} {connectedClients === 1 ? 'user' : 'users'} online
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div 

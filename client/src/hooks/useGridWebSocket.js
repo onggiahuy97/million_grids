@@ -19,6 +19,9 @@ export function useGridWebSocket() {
   // Connection status
   const [isConnected, setIsConnected] = useState(false);
   
+  // Connected clients count
+  const [connectedClients, setConnectedClients] = useState(0);
+  
   // WebSocket reference
   const wsRef = useRef(null);
   
@@ -34,6 +37,14 @@ export function useGridWebSocket() {
       return;
     }
 
+    // Close any existing connection to prevent duplicate connections
+    if (wsRef.current) {
+      // Remove onclose handler to prevent reconnection trigger during intentional close
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     console.log('Connecting to WebSocket...', WS_URL);
     const ws = new WebSocket(WS_URL);
 
@@ -44,37 +55,45 @@ export function useGridWebSocket() {
     };
 
     ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'init') {
-          // Initial state: { type: 'init', size: 1000, active: [{x, y}, ...] }
-          console.log('Received initial state:', data.active?.length || 0, 'active cells');
-          setGridSize(data.size || 1000);
+      // Server may batch multiple JSON messages separated by newlines
+      const messages = event.data.split('\n').filter(msg => msg.trim());
+      
+      for (const msg of messages) {
+        try {
+          const data = JSON.parse(msg);
           
-          // Convert active array to Set
-          const activeSet = new Set();
-          if (data.active) {
-            data.active.forEach(cell => {
-              activeSet.add(`${cell.x},${cell.y}`);
-            });
-          }
-          setActiveCells(activeSet);
-        } else if (data.t === 'u') {
-          // Cell update: { t: 'u', x, y, a: 0|1 }
-          setActiveCells(prev => {
-            const newSet = new Set(prev);
-            const key = `${data.x},${data.y}`;
-            if (data.a === 1) {
-              newSet.add(key);
-            } else {
-              newSet.delete(key);
+          if (data.type === 'init') {
+            // Initial state: { type: 'init', size: 1000, active: [{x, y}, ...] }
+            console.log('Received initial state:', data.active?.length || 0, 'active cells');
+            setGridSize(data.size || 1000);
+            
+            // Convert active array to Set
+            const activeSet = new Set();
+            if (data.active) {
+              data.active.forEach(cell => {
+                activeSet.add(`${cell.x},${cell.y}`);
+              });
             }
-            return newSet;
-          });
+            setActiveCells(activeSet);
+          } else if (data.t === 'u') {
+            // Cell update: { t: 'u', x, y, a: 0|1 }
+            setActiveCells(prev => {
+              const newSet = new Set(prev);
+              const key = `${data.x},${data.y}`;
+              if (data.a === 1) {
+                newSet.add(key);
+              } else {
+                newSet.delete(key);
+              }
+              return newSet;
+            });
+          } else if (data.t === 'c') {
+            // Connection count update: { t: 'c', count: N }
+            setConnectedClients(data.count || 0);
+          }
+        } catch (err) {
+          console.error('Error parsing WebSocket message:', err, msg);
         }
-      } catch (err) {
-        console.error('Error parsing WebSocket message:', err);
       }
     };
 
@@ -136,6 +155,7 @@ export function useGridWebSocket() {
     activeCells,
     gridSize,
     isConnected,
+    connectedClients,
     toggleCell,
     isCellActive,
   };
