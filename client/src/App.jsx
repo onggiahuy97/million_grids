@@ -11,25 +11,24 @@ function App() {
   }, [toggleCell]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-8 px-4">
-      {/* Header */}
-      <header className="mb-6 text-center">
-        <h1 className="text-4xl font-bold text-white mb-2">Million Grids</h1>
-        <p className="text-gray-400">Real-time collaborative {gridSize.toLocaleString()}×{gridSize.toLocaleString()} grid</p>
-      </header>
-
-      {/* Connection Status */}
-      <div className="mb-4 flex items-center gap-2">
-        <div 
-          className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}
-        />
-        <span className="text-gray-300 text-sm">
-          {isConnected ? 'Connected' : 'Disconnected'}
-        </span>
+    <div className="h-screen w-screen flex flex-col items-center overflow-hidden bg-gray-900">
+      {/* Header & Status Overlay */}
+      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
+        <div>
+          <h1 className="text-2xl font-bold text-white drop-shadow-md">Million Grids</h1>
+          <p className="text-gray-300 text-sm drop-shadow-md">
+            {gridSize.toLocaleString()}×{gridSize.toLocaleString()} • {isConnected ? 'Connected' : 'Disconnected'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div 
+            className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} shadow-sm`}
+          />
+        </div>
       </div>
 
       {/* Grid */}
-      <div className="w-full max-w-6xl">
+      <div className="flex-1 w-full h-full">
         <VirtualGrid
           gridSize={gridSize}
           activeCells={activeCells}
@@ -38,11 +37,9 @@ function App() {
         />
       </div>
 
-      {/* Instructions */}
-      <div className="mt-6 text-gray-500 text-sm text-center max-w-md space-y-1">
-        <p><strong>Click</strong> to toggle a cell on/off</p>
-        <p><strong>Scroll</strong> to zoom in/out</p>
-        <p><strong>Drag</strong> to pan around the grid</p>
+      {/* Instructions Overlay */}
+      <div className="absolute bottom-4 left-4 z-10 pointer-events-none text-gray-400 text-xs bg-black/50 p-2 rounded backdrop-blur-sm">
+        <p><strong>Click</strong> to toggle • <strong>Scroll</strong> zoom • <strong>Drag</strong> pan</p>
       </div>
     </div>
   );

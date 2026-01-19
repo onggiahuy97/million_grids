@@ -15,12 +15,29 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
   // Viewport state
   const [cellSize, setCellSize] = useState(DEFAULT_CELL_SIZE);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [initialized, setInitialized] = useState(false);
   
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const offsetStartRef = useRef({ x: 0, y: 0 });
+
+  // Center the grid when container size is known
+  useEffect(() => {
+    if (!initialized && containerSize.width > 0 && containerSize.height > 0) {
+      // Calculate total grid size in pixels
+      const totalGridWidth = gridSize * cellSize;
+      const totalGridHeight = gridSize * cellSize;
+      
+      // Center position
+      const centerX = (containerSize.width - totalGridWidth) / 2;
+      const centerY = (containerSize.height - totalGridHeight) / 2;
+      
+      setOffset({ x: centerX, y: centerY });
+      setInitialized(true);
+    }
+  }, [containerSize, gridSize, cellSize, initialized]);
 
   // Calculate visible cell range based on viewport
   const visibleRange = useMemo(() => {
@@ -223,10 +240,10 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
   const visibleCellCount = (visibleRange.endX - visibleRange.startX) * (visibleRange.endY - visibleRange.startY);
 
   return (
-    <div className="relative">
+    <div className="relative w-full h-full">
       <div
         ref={containerRef}
-        className="w-full h-[70vh] min-h-[400px] bg-gray-900 border-2 border-gray-700 rounded-lg cursor-crosshair overflow-hidden"
+        className="w-full h-full bg-gray-900 cursor-crosshair overflow-hidden"
         onMouseDown={handleMouseDown}
       >
         <canvas
@@ -243,7 +260,7 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
       </div>
 
       {/* Coordinates overlay */}
-      <div className="absolute top-4 left-4 bg-black/70 text-white px-3 py-2 rounded text-sm">
+      <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-2 rounded text-sm text-right">
         Range: ({visibleRange.startX}, {visibleRange.startY}) to ({visibleRange.endX}, {visibleRange.endY})
       </div>
     </div>
