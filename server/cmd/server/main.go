@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -83,5 +84,5 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status": "ok", "clients": ` + string(rune(hub.ClientCount())) + `}`))
+	w.Write([]byte(fmt.Sprintf(`{"status": "ok", "clients": %d}`, hub.ClientCount())))
 }

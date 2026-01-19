@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"fmt"
 	"log"
 	"sync"
 )
@@ -39,9 +40,18 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.mu.Lock()
-			h.clients[client] = true
+			// Check if client is already registered to prevent duplicate counting
+			alreadyRegistered := h.clients[client]
+			if !alreadyRegistered {
+				h.clients[client] = true
+			}
 			h.mu.Unlock()
+			if alreadyRegistered {
+				log.Printf("Client already registered, skipping. Total clients: %d", h.ClientCount())
+				continue
+			}
 			log.Printf("Client registered. Total clients: %d", h.ClientCount())
+			h.BroadcastClientCount()
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -51,6 +61,7 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 			log.Printf("Client unregistered. Total clients: %d", h.ClientCount())
+			h.BroadcastClientCount()
 
 		case message := <-h.broadcast:
 			h.mu.RLock()
@@ -89,4 +100,11 @@ func (h *Hub) Register(client *Client) {
 // Unregister removes a client from the hub
 func (h *Hub) Unregister(client *Client) {
 	h.unregister <- client
+}
+
+// BroadcastClientCount sends the current client count to all connected clients
+func (h *Hub) BroadcastClientCount() {
+	count := h.ClientCount()
+	message := []byte(fmt.Sprintf(`{"t":"c","count":%d}`, count))
+	h.Broadcast(message)
 }
