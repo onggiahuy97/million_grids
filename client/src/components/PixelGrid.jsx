@@ -24,6 +24,11 @@ export function PixelGrid({ grid, pixelUpdate, selectedColor, onPixelClick }) {
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const offsetStartRef = useRef({ x: 0, y: 0 });
+  
+  // Pinch-to-zoom state (use refs to avoid stale closures in event listeners)
+  const isPinchingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const pinchStartRef = useRef({ distance: 0, scale: DEFAULT_SCALE, centerX: 0, centerY: 0 });
 
   // Initialize canvas context
   useEffect(() => {
@@ -88,36 +93,6 @@ export function PixelGrid({ grid, pixelUpdate, selectedColor, onPixelClick }) {
     } : { r: 255, g: 255, b: 255 };
   };
 
-  // Calculate pixel coordinates from mouse event
-  const getPixelCoords = useCallback((e) => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return null;
-
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Account for offset and scale
-    const x = Math.floor((mouseX - offset.x) / scale);
-    const y = Math.floor((mouseY - offset.y) / scale);
-
-    if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-      return { x, y };
-    }
-    return null;
-  }, [scale, offset]);
-
-  // Handle canvas click
-  const handleClick = useCallback((e) => {
-    if (isDragging) return;
-    
-    const coords = getPixelCoords(e);
-    if (coords && onPixelClick) {
-      onPixelClick(coords.x, coords.y);
-    }
-  }, [getPixelCoords, onPixelClick, isDragging]);
-
   // Handle mouse wheel for zoom
   const handleWheel = useCallback((e) => {
     e.preventDefault();
@@ -171,26 +146,154 @@ export function PixelGrid({ grid, pixelUpdate, selectedColor, onPixelClick }) {
     setIsDragging(false);
   }, []);
 
-  // Add global mouse listeners for dragging
+  // Handle touch start for dragging (mobile) and pinch-to-zoom
+  const handleTouchStart = useCallback((e) => {
+    if (e.touches.length === 2) {
+      // Pinch-to-zoom start
+      e.preventDefault();
+      isPinchingRef.current = true;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      const distance = Math.hypot(dx, dy);
+      
+      // Center point between two fingers
+      const rect = containerRef.current.getBoundingClientRect();
+      const centerX = (touch1.clientX + touch2.clientX) / 2 - rect.left;
+      const centerY = (touch1.clientY + touch2.clientY) / 2 - rect.top;
+      
+      pinchStartRef.current = {
+        distance,
+        scale,
+        centerX,
+        centerY,
+        offsetX: offset.x,
+        offsetY: offset.y,
+      };
+    } else if (e.touches.length === 1 && !isPinchingRef.current) {
+      // Single finger drag
+      const touch = e.touches[0];
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      dragStartRef.current = { x: touch.clientX, y: touch.clientY };
+      offsetStartRef.current = { ...offset };
+    }
+  }, [offset, scale]);
+
+  // Handle touch move for dragging (mobile) and pinch-to-zoom
+  const handleTouchMove = useCallback((e) => {
+    e.preventDefault(); // Prevent page scrolling
+    
+    if (e.touches.length === 2 && isPinchingRef.current) {
+      // Pinch-to-zoom
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      const distance = Math.hypot(dx, dy);
+      
+      // Calculate new scale based on pinch ratio
+      const scaleRatio = distance / pinchStartRef.current.distance;
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, 
+        pinchStartRef.current.scale * scaleRatio));
+      
+      // Adjust offset to zoom toward pinch center
+      const actualRatio = newScale / pinchStartRef.current.scale;
+      const newOffset = {
+        x: pinchStartRef.current.centerX - (pinchStartRef.current.centerX - pinchStartRef.current.offsetX) * actualRatio,
+        y: pinchStartRef.current.centerY - (pinchStartRef.current.centerY - pinchStartRef.current.offsetY) * actualRatio,
+      };
+      
+      setScale(newScale);
+      setOffset(newOffset);
+    } else if (e.touches.length === 1 && isDraggingRef.current && !isPinchingRef.current) {
+      // Single finger pan
+      const touch = e.touches[0];
+      const dx = touch.clientX - dragStartRef.current.x;
+      const dy = touch.clientY - dragStartRef.current.y;
+
+      setOffset({
+        x: offsetStartRef.current.x + dx,
+        y: offsetStartRef.current.y + dy,
+      });
+    }
+  }, []);
+
+  // Handle touch end (tap to click pixel)
+  const handleTouchEnd = useCallback((e) => {
+    // Prevent synthetic mouse/click events from firing after touch
+    e.preventDefault();
+    
+    // If we were pinching, just reset state
+    if (isPinchingRef.current) {
+      isPinchingRef.current = false;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      return;
+    }
+    
+    if (e.changedTouches.length === 1 && !isPinchingRef.current) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - dragStartRef.current.x);
+      const dy = Math.abs(touch.clientY - dragStartRef.current.y);
+      
+      // If it was a tap (minimal movement), click the pixel
+      if (dx < 10 && dy < 10 && onPixelClick) {
+        const container = containerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const touchX = touch.clientX - rect.left;
+          const touchY = touch.clientY - rect.top;
+          
+          const x = Math.floor((touchX - offsetStartRef.current.x) / scale);
+          const y = Math.floor((touchY - offsetStartRef.current.y) / scale);
+          
+          if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+            onPixelClick(x, y);
+          }
+        }
+      }
+    }
+    isDraggingRef.current = false;
+    setIsDragging(false);
+  }, [scale, onPixelClick]);
+
+  // Add global mouse and touch listeners for dragging
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Touch move needs passive: false to allow preventDefault
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
+        container.removeEventListener('touchmove', handleTouchMove);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+    
+    return () => {
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [isDragging, handleMouseMove, handleMouseUp, handleTouchMove]);
 
   return (
     <div
       ref={containerRef}
       className="relative overflow-hidden bg-gray-900 border-2 border-gray-700 rounded-lg cursor-crosshair"
-      style={{ width: '800px', height: '600px' }}
+      style={{ width: '800px', height: '600px', touchAction: 'none' }}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
-      onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       <canvas
         ref={canvasRef}

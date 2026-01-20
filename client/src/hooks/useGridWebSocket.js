@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 
 const WS_URL = import.meta.env.PROD 
   ? `ws://${window.location.host}/ws` 
-  : 'ws://localhost:8080/ws';
+  : `ws://${window.location.hostname}:8080/ws`;
 
 /**
  * Custom hook to manage WebSocket connection for the grid

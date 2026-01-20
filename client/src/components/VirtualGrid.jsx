@@ -22,6 +22,11 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const offsetStartRef = useRef({ x: 0, y: 0 });
+  
+  // Pinch-to-zoom state (use refs to avoid stale closures in event listeners)
+  const isPinchingRef = useRef(false);
+  const isDraggingRef = useRef(false);
+  const pinchStartRef = useRef({ distance: 0, cellSize: DEFAULT_CELL_SIZE, centerX: 0, centerY: 0 });
 
   // Center the grid when container size is known
   useEffect(() => {
@@ -213,17 +218,147 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
     }
   }, [isDragging, cellSize, gridSize, onCellClick]);
 
-  // Global mouse listeners for dragging
+  // Handle touch start for dragging (mobile) and pinch-to-zoom
+  const handleTouchStart = useCallback((e) => {
+    if (e.touches.length === 2) {
+      // Pinch-to-zoom start
+      e.preventDefault();
+      isPinchingRef.current = true;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      const distance = Math.hypot(dx, dy);
+      
+      // Center point between two fingers
+      const rect = containerRef.current.getBoundingClientRect();
+      const centerX = (touch1.clientX + touch2.clientX) / 2 - rect.left;
+      const centerY = (touch1.clientY + touch2.clientY) / 2 - rect.top;
+      
+      pinchStartRef.current = {
+        distance,
+        cellSize,
+        centerX,
+        centerY,
+        offsetX: offset.x,
+        offsetY: offset.y,
+      };
+    } else if (e.touches.length === 1 && !isPinchingRef.current) {
+      // Single finger drag
+      const touch = e.touches[0];
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      dragStartRef.current = { x: touch.clientX, y: touch.clientY };
+      offsetStartRef.current = { ...offset };
+    }
+  }, [offset, cellSize]);
+
+  // Handle touch move for dragging (mobile) and pinch-to-zoom
+  const handleTouchMove = useCallback((e) => {
+    e.preventDefault(); // Prevent page scrolling
+    
+    if (e.touches.length === 2 && isPinchingRef.current) {
+      // Pinch-to-zoom
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      const distance = Math.hypot(dx, dy);
+      
+      // Calculate new cell size based on pinch ratio
+      const scaleRatio = distance / pinchStartRef.current.distance;
+      const newCellSize = Math.min(MAX_CELL_SIZE, Math.max(MIN_CELL_SIZE, 
+        pinchStartRef.current.cellSize * scaleRatio));
+      
+      // Adjust offset to zoom toward pinch center
+      const actualRatio = newCellSize / pinchStartRef.current.cellSize;
+      const newOffset = {
+        x: pinchStartRef.current.centerX - (pinchStartRef.current.centerX - pinchStartRef.current.offsetX) * actualRatio,
+        y: pinchStartRef.current.centerY - (pinchStartRef.current.centerY - pinchStartRef.current.offsetY) * actualRatio,
+      };
+      
+      setCellSize(newCellSize);
+      setOffset(newOffset);
+    } else if (e.touches.length === 1 && isDraggingRef.current && !isPinchingRef.current) {
+      // Single finger pan
+      const touch = e.touches[0];
+      const dx = touch.clientX - dragStartRef.current.x;
+      const dy = touch.clientY - dragStartRef.current.y;
+
+      setOffset({
+        x: offsetStartRef.current.x + dx,
+        y: offsetStartRef.current.y + dy,
+      });
+    }
+  }, []);
+
+  // Handle touch end (tap to click cell)
+  const handleTouchEnd = useCallback((e) => {
+    // Prevent synthetic mouse/click events from firing after touch
+    e.preventDefault();
+    
+    // If we were pinching, just reset state
+    if (isPinchingRef.current) {
+      isPinchingRef.current = false;
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      return;
+    }
+    
+    if (e.changedTouches.length === 1 && !isPinchingRef.current) {
+      const touch = e.changedTouches[0];
+      const dx = Math.abs(touch.clientX - dragStartRef.current.x);
+      const dy = Math.abs(touch.clientY - dragStartRef.current.y);
+      
+      // If it was a tap (minimal movement), click the cell
+      if (dx < 10 && dy < 10 && onCellClick) {
+        const container = containerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const touchX = touch.clientX - rect.left;
+          const touchY = touch.clientY - rect.top;
+          
+          const currentOffset = offsetStartRef.current;
+          const cellX = Math.floor((touchX - currentOffset.x) / cellSize);
+          const cellY = Math.floor((touchY - currentOffset.y) / cellSize);
+          
+          console.log('Touch tap at cell:', cellX, cellY);
+          
+          if (cellX >= 0 && cellX < gridSize && cellY >= 0 && cellY < gridSize) {
+            onCellClick(cellX, cellY);
+          }
+        }
+      }
+    }
+    isDraggingRef.current = false;
+    setIsDragging(false);
+  }, [cellSize, gridSize, onCellClick]);
+
+  // Global mouse and touch listeners for dragging
   useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Touch move needs passive: false to allow preventDefault
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
         window.removeEventListener('mousemove', handleMouseMove);
         window.removeEventListener('mouseup', handleMouseUp);
+        container.removeEventListener('touchmove', handleTouchMove);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+
+    return () => {
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [isDragging, handleMouseMove, handleMouseUp, handleTouchMove]);
 
   // Wheel listener with passive: false to allow preventDefault
   useEffect(() => {
@@ -244,7 +379,10 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
       <div
         ref={containerRef}
         className="w-full h-full bg-gray-900 cursor-crosshair overflow-hidden"
+        style={{ touchAction: 'none' }}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
         <canvas
           ref={canvasRef}
