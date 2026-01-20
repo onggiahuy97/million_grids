@@ -1,14 +1,26 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useGridWebSocket } from './hooks/useGridWebSocket';
 import { VirtualGrid } from './components/VirtualGrid';
 
+// 7 predefined colors matching backend validation
+const COLORS = [
+  { hex: '#FF0000', name: 'Red' },
+  { hex: '#FF8000', name: 'Orange' },
+  { hex: '#FFFF00', name: 'Yellow' },
+  { hex: '#00FF00', name: 'Green' },
+  { hex: '#00FFFF', name: 'Cyan' },
+  { hex: '#0000FF', name: 'Blue' },
+  { hex: '#FF00FF', name: 'Magenta' },
+];
+
 function App() {
   const { activeCells, gridSize, isConnected, connectedClients, toggleCell, isCellActive } = useGridWebSocket();
+  const [selectedColor, setSelectedColor] = useState(COLORS[0].hex);
 
-  // Handle cell click from grid
+  // Handle cell click from grid - pass selected color
   const handleCellClick = useCallback((x, y) => {
-    toggleCell(x, y);
-  }, [toggleCell]);
+    toggleCell(x, y, selectedColor);
+  }, [toggleCell, selectedColor]);
 
   return (
     <div className="h-screen w-screen flex flex-col items-center overflow-hidden bg-gray-900">
@@ -40,6 +52,21 @@ function App() {
           isCellActive={isCellActive}
           onCellClick={handleCellClick}
         />
+      </div>
+
+      {/* Color Picker */}
+      <div className="absolute bottom-14 left-4 z-10 flex flex-col gap-1 bg-black/70 p-1.5 rounded-lg backdrop-blur-sm">
+        {COLORS.map((color) => (
+          <button
+            key={color.hex}
+            onClick={() => setSelectedColor(color.hex)}
+            className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${
+              selectedColor === color.hex ? 'border-white scale-110' : 'border-gray-600'
+            }`}
+            style={{ backgroundColor: color.hex }}
+            title={color.name}
+          />
+        ))}
       </div>
 
       {/* Instructions Overlay */}

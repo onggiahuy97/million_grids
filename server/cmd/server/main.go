@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/million_grids/server/internal/db"
@@ -65,8 +67,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create new client
-	client := ws.NewClient(hub, conn)
+	// Extract client IP address
+	ipAddress := getClientIP(r)
+
+	// Create new client with IP address
+	client := ws.NewClient(hub, conn, ipAddress)
 
 	// Register the client with the hub
 	hub.Register(client)
@@ -78,6 +83,32 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Start the client's read/write pumps
 	client.Start()
+}
+
+// getClientIP extracts the client's IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies/load balancers)
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		// X-Forwarded-For can contain multiple IPs, take the first one
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Check X-Real-IP header
+	xri := r.Header.Get("X-Real-IP")
+	if xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 // handleHealth is a simple health check endpoint

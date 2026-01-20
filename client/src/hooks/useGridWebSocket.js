@@ -6,12 +6,12 @@ const WS_URL = import.meta.env.PROD
 
 /**
  * Custom hook to manage WebSocket connection for the grid
- * Uses sparse format - only tracks active cells
+ * Uses sparse format - only tracks active cells with their colors
  * @returns {Object} { activeCells, gridSize, isConnected, toggleCell }
  */
 export function useGridWebSocket() {
-  // Active cells stored as a Set of "x,y" strings for O(1) lookup
-  const [activeCells, setActiveCells] = useState(new Set());
+  // Active cells stored as a Map of "x,y" -> color for O(1) lookup
+  const [activeCells, setActiveCells] = useState(new Map());
   
   // Grid size from server
   const [gridSize, setGridSize] = useState(1000);
@@ -63,29 +63,29 @@ export function useGridWebSocket() {
           const data = JSON.parse(msg);
           
           if (data.type === 'init') {
-            // Initial state: { type: 'init', size: 1000, active: [{x, y}, ...] }
+            // Initial state: { type: 'init', size: 1000, active: [{x, y, color}, ...] }
             console.log('Received initial state:', data.active?.length || 0, 'active cells');
             setGridSize(data.size || 1000);
             
-            // Convert active array to Set
-            const activeSet = new Set();
+            // Convert active array to Map with colors
+            const activeMap = new Map();
             if (data.active) {
               data.active.forEach(cell => {
-                activeSet.add(`${cell.x},${cell.y}`);
+                activeMap.set(`${cell.x},${cell.y}`, cell.color || '#FFFFFF');
               });
             }
-            setActiveCells(activeSet);
+            setActiveCells(activeMap);
           } else if (data.t === 'u') {
-            // Cell update: { t: 'u', x, y, a: 0|1 }
+            // Cell update: { t: 'u', x, y, a: 0|1, color }
             setActiveCells(prev => {
-              const newSet = new Set(prev);
+              const newMap = new Map(prev);
               const key = `${data.x},${data.y}`;
               if (data.a === 1) {
-                newSet.add(key);
+                newMap.set(key, data.color || '#FFFFFF');
               } else {
-                newSet.delete(key);
+                newMap.delete(key);
               }
-              return newSet;
+              return newMap;
             });
           } else if (data.t === 'c') {
             // Connection count update: { t: 'c', count: N }
@@ -120,10 +120,10 @@ export function useGridWebSocket() {
     wsRef.current = ws;
   }, []);
 
-  // Send a cell toggle to the server
-  const toggleCell = useCallback((x, y) => {
+  // Send a cell toggle to the server with color
+  const toggleCell = useCallback((x, y, color = '#FF0000') => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({ x, y });
+      const message = JSON.stringify({ x, y, color });
       console.log('Sending toggle message:', message);
       wsRef.current.send(message);
     } else {
@@ -131,9 +131,10 @@ export function useGridWebSocket() {
     }
   }, []);
 
-  // Check if a cell is active
+  // Check if a cell is active (returns color string or false)
   const isCellActive = useCallback((x, y) => {
-    return activeCells.has(`${x},${y}`);
+    const key = `${x},${y}`;
+    return activeCells.has(key) ? activeCells.get(key) : false;
   }, [activeCells]);
 
   // Initialize connection on mount
