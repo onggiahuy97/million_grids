@@ -23,10 +23,11 @@ const (
 	maxMessageSize = 512
 )
 
-// CellToggle represents a cell toggle message from client
+// CellToggle represents a cell toggle message from client (now with color)
 type CellToggle struct {
-	X int `json:"x"`
-	Y int `json:"y"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Color string `json:"color,omitempty"` // Hex color like "#FF0000"
 }
 
 // BroadcastCellUpdate is sent to all clients when a cell changes
@@ -34,13 +35,15 @@ type BroadcastCellUpdate struct {
 	Type   string `json:"t"`
 	X      int    `json:"x"`
 	Y      int    `json:"y"`
-	Active int    `json:"a"` // 0 or 1 for JSON
+	Active int    `json:"a"`     // 0 or 1 for JSON
+	Color  string `json:"color"` // Hex color
 }
 
-// ActiveCell represents an active cell in sparse format
+// ActiveCell represents an active cell in sparse format (with color)
 type ActiveCell struct {
-	X int `json:"x"`
-	Y int `json:"y"`
+	X     int    `json:"x"`
+	Y     int    `json:"y"`
+	Color string `json:"color"`
 }
 
 // InitMessage represents the initial state sent to new clients (sparse format)
@@ -59,14 +62,18 @@ type Client struct {
 
 	// Buffered channel of outbound messages
 	send chan []byte
+
+	// Client IP address for tracking
+	ipAddress string
 }
 
 // NewClient creates a new Client instance
-func NewClient(hub *Hub, conn *websocket.Conn) *Client {
+func NewClient(hub *Hub, conn *websocket.Conn, ipAddress string) *Client {
 	return &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+		hub:       hub,
+		conn:      conn,
+		send:      make(chan []byte, 256),
+		ipAddress: ipAddress,
 	}
 }
 
@@ -117,14 +124,31 @@ func (c *Client) handleCellToggle(toggle CellToggle) {
 		return
 	}
 
-	// Toggle the cell and get new state (thread-safe)
-	newState := Grid.ToggleCell(toggle.X, toggle.Y)
+	// Validate color - must be one of the 7 allowed colors
+	color := toggle.Color
+	if color == "" {
+		color = "#FF0000" // Default to red if no color provided
+	}
+	if !db.IsValidColor(color) {
+		log.Printf("Invalid color: %s, defaulting to red", color)
+		color = "#FF0000"
+	}
+
+	// Toggle the cell with color and get new state (thread-safe)
+	newState, newColor := Grid.ToggleCell(toggle.X, toggle.Y, color)
+
+	// Get current timestamp
+	now := time.Now()
 
 	// Asynchronously save to database (fire-and-forget)
 	db.SavePixelAsync(db.Pixel{
-		X:      toggle.X,
-		Y:      toggle.Y,
-		Active: newState,
+		X:         toggle.X,
+		Y:         toggle.Y,
+		Active:    newState,
+		Color:     newColor,
+		CreatedBy: c.ipAddress,
+		ModifyAt:  &now,
+		ModifyBy:  c.ipAddress,
 	})
 
 	// Convert bool to int for JSON
@@ -133,16 +157,17 @@ func (c *Client) handleCellToggle(toggle CellToggle) {
 		activeInt = 1
 	}
 
-	// Broadcast the update to all clients
+	// Broadcast the update to all clients (with color)
 	broadcastMsg, _ := json.Marshal(BroadcastCellUpdate{
 		Type:   "u",
 		X:      toggle.X,
 		Y:      toggle.Y,
 		Active: activeInt,
+		Color:  newColor,
 	})
 	c.hub.Broadcast(broadcastMsg)
 
-	log.Printf("Cell toggled: (%d, %d) -> %v", toggle.X, toggle.Y, newState)
+	log.Printf("Cell toggled: (%d, %d) -> %v, color: %s, by: %s", toggle.X, toggle.Y, newState, newColor, c.ipAddress)
 }
 
 // writePump pumps messages from the hub to the websocket connection
@@ -195,14 +220,14 @@ func (c *Client) Start() {
 	go c.readPump()
 }
 
-// SendInitialState sends the active cells to a newly connected client (sparse format)
+// SendInitialState sends the active cells to a newly connected client (sparse format with colors)
 func (c *Client) SendInitialState() error {
 	activeCells := Grid.GetActiveCells()
 
-	// Convert to ActiveCell format for JSON
+	// Convert to ActiveCell format for JSON (includes color)
 	activeList := make([]ActiveCell, len(activeCells))
 	for i, cell := range activeCells {
-		activeList[i] = ActiveCell{X: cell.X, Y: cell.Y}
+		activeList[i] = ActiveCell{X: cell.X, Y: cell.Y, Color: cell.Color}
 	}
 
 	msg := InitMessage{

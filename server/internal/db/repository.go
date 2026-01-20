@@ -4,17 +4,38 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
+// ValidColors defines the 7 allowed colors for pixels
+var ValidColors = map[string]bool{
+	"#FF0000": true, // Red
+	"#FF8000": true, // Orange
+	"#FFFF00": true, // Yellow
+	"#00FF00": true, // Green
+	"#00FFFF": true, // Cyan
+	"#0000FF": true, // Blue
+	"#FF00FF": true, // Magenta
+}
+
+// IsValidColor checks if a color is in the allowed list
+func IsValidColor(color string) bool {
+	return ValidColors[color]
+}
+
 // Pixel represents a single cell on the grid
 type Pixel struct {
-	X      int  `gorm:"primaryKey;autoIncrement:false" json:"x"`
-	Y      int  `gorm:"primaryKey;autoIncrement:false" json:"y"`
-	Active bool `gorm:"type:tinyint(1);not null;default:0" json:"a"`
+	X         int        `gorm:"primaryKey;autoIncrement:false" json:"x"`
+	Y         int        `gorm:"primaryKey;autoIncrement:false" json:"y"`
+	Active    bool       `gorm:"type:tinyint(1);not null;default:0" json:"a"`
+	Color     string     `gorm:"type:varchar(7);not null;default:'#FFFFFF'" json:"color"`
+	CreatedBy string     `gorm:"type:varchar(45);null" json:"created_by,omitempty"`
+	ModifyAt  *time.Time `gorm:"type:datetime;null" json:"modify_at,omitempty"`
+	ModifyBy  string     `gorm:"type:varchar(45);null" json:"modify_by,omitempty"`
 }
 
 // TableName specifies the table name for Pixel

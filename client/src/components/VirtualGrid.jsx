@@ -113,16 +113,17 @@ export function VirtualGrid({ gridSize, activeCells, isCellActive, onCellClick }
       }
     }
 
-    // Draw active cells (white when active)
-    ctx.fillStyle = '#FFFFFF';
-    
-    activeCells.forEach(key => {
+    // Draw active cells with their colors
+    activeCells.forEach((color, key) => {
       const [x, y] = key.split(',').map(Number);
       
       // Only draw if in visible range
       if (x >= startX && x < endX && y >= startY && y < endY) {
         const screenX = x * cellSize + offset.x;
         const screenY = y * cellSize + offset.y;
+        
+        // Set fill color from cell data
+        ctx.fillStyle = color || '#FFFFFF';
         
         // Draw filled cell with small padding for grid line visibility
         const padding = cellSize >= 8 ? 1 : 0;
